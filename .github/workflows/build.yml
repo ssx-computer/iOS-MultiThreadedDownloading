@@ -14,20 +14,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build tweak (Theos + Xcode 16.5, via Docker)
+      - name: Show toolchain
         run: |
-          docker run --rm \
-            -v "$PWD":/build -w /build \
-            xcodeorg/xcode:16.5 \
-            bash -c '
-              set -e
-              if [ ! -d /Theos ]; then
-                git clone --depth=1 https://github.com/theos/theos.git /Theos
-              fi
-              export THEOS=/Theos
-              make clean package
-              ls -lh _Packages/arm64/
-            '
+          xcode-select -p
+          clang --version | head -n 1
+
+      - name: Install Theos
+        run: git clone --depth=1 https://github.com/theos/theos.git "$HOME/theos"
+
+      - name: Build tweak (Theos + native Xcode)
+        run: |
+          set -e
+          export THEOS="$HOME/theos"
+          make clean package
+          ls -lh _Packages/arm64/
 
       - name: Upload deb artifact
         uses: actions/upload-artifact@v4
