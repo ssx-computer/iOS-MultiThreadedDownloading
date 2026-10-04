@@ -1,0 +1,12 @@
+# Theos 构建产物
+Packages/
+_Packages/
+obj/
+.build/
+.theos/
+*.d
+
+# 本地日志 / 临时文件
+SDFSpy/
+*.log
+.DS_Store

@@ -1,0 +1,10 @@
+{
+    Filter = (
+        {
+            BundleIdentifier = "com.apple.mobilesafari";
+        },
+        {
+            BundleIdentifier = "com.apple.WebKit.WebContent";
+        }
+    );
+}
