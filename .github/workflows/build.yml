@@ -20,7 +20,9 @@ jobs:
           clang --version | head -n 1
 
       - name: Install Theos
-        run: git clone --depth=1 https://github.com/theos/theos.git "$HOME/theos"
+        run: |
+          git clone --depth=1 https://github.com/theos/theos.git "$HOME/theos"
+          git -C "$HOME/theos" submodule update --init --recursive --depth=1
 
       - name: Build tweak (Theos + native Xcode)
         run: |

@@ -13,6 +13,7 @@ docker run --rm -it \
         if [ ! -d /Theos ]; then
             git clone https://github.com/theos/theos.git /Theos --depth=1
         fi
+        git -C /Theos submodule update --init --recursive --depth=1
         export THEOS=/Theos
         export THEOS_DEVICE_IP=""
         make clean
