@@ -56,10 +56,10 @@ cd SDFSpy
 ./build.sh          # 自动拉 xcodeorg/xcode:16.5 镜像 + Theos，make package
 ```
 
-产物：`packages/com.ssx.sdfsafari.spy_1.1.0_arm64.deb`
+产物：`packages/com.ssx.sdfsafari.spy_1.2.0_iphoneos-arm64.deb`
 
-> 如果目标设备系统低于 17（如 15/16），把 Makefile 中 `TARGET := iphone:clang:16.5:17.0`
-> 改成对应 SDK 版本（如 `15.0`）。
+> 构建机 SDK 会自动选择（`TARGET := iphone:clang::17.0`，SDK 段留空 → 用机器最新 SDK）。
+> 如目标设备系统低于 17，可把最后的 `17.0` 改成目标系统版本（如 `15.0`）。
 
 ## 安装
 

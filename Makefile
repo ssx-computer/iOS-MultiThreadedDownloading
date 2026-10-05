@@ -5,6 +5,10 @@ TARGET := iphone:clang::17.0
 # 说明：第 3 段是 SDK 版本（留空 = 自动选构建机最新 SDK，如 CI macos-14 的 iPhoneOS17.5），
 # 第 4 段是部署目标（最低支持的 iOS 版本）。
 
+# Dopamine / RootHide 均为 rootless 越狱（根在 /var/jb），强制打 rootless 包
+# （装到 /var/jb/Library/... ，必须写在 include common.mk 之前）
+export THEOS_PACKAGE_SCHEME = rootless
+
 # 如需 SSH 安装可指定设备 IP
 # THEOS_DEVICE_IP := 192.168.1.20
 # THEOS_DEVICE_PASS := alpine
