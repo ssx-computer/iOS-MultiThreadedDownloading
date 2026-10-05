@@ -23,6 +23,8 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/theos/theos.git "$HOME/theos"
           git -C "$HOME/theos" submodule update --init --recursive --depth=1
+          # ldid: fake-sign the tweak dylib (required for jailbreak loading)
+          brew install ldid || true
 
       - name: Build tweak (Theos + native Xcode)
         run: |
