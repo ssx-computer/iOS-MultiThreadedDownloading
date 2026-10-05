@@ -1,6 +1,6 @@
 Package: com.ssx.sdfsafari.spy
 Name: SDFSpy
-Architecture: arm64 arm64e
+Architecture: iphoneos-arm
 Version: 1.1.0
 Description: Capture all Safari download requests, auto-forward to GoPeed iOS (8 threads). Dopamine/RootHide compatible.
 Maintainer: ssx
