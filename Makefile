@@ -13,7 +13,7 @@ SDFSpy_FILES = Tweak.x
 SDFSpy_CFLAGS = -fobjc-arc
 SDFSpy_FRAMEWORKS = Foundation UIKit
 
-include $(THEOS)/makefiles/common
+include $(THEOS)/makefiles/common.mk
 include $(THEOS_MAKE_PATH)/tweak.mk
 
 after-package::
