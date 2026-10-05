@@ -55,7 +55,7 @@ static NSString *LogPath(void) {
 
 static void AppendLog(NSString *msg) {
     NSString *line = [NSString stringWithFormat:@"[%@] [%@] %@\n",
-                      [NSDate date], [NSProcessInfo.processInfo.processName], msg];
+                      [NSDate date], [[NSProcessInfo processInfo] processName], msg];
     NSLog(@"[SDFSpy] %@", msg);
     [gLock lock];
     @try {
@@ -142,7 +142,8 @@ static NSString *SDFSpyGoPeedLink(NSString *urlString) {
 // 跨进程去重：双进程都可能捕获到同一请求
 static BOOL SDFSpyShouldForward(NSString *urlString) {
     unsigned hash = 0;
-    for (unichar c in urlString) hash = hash * 31 + c;
+    for (NSUInteger i = 0; i < urlString.length; i++)
+        hash = hash * 31 + (unichar)[urlString characterAtIndex:i];
     NSString *marker = [WorkDir() stringByAppendingPathComponent:
                         [NSString stringWithFormat:@".fwd_%08x", hash]];
     @try {
@@ -261,7 +262,7 @@ static void SDFSpyReport(NSURLRequest *req, NSString *kind) {
 %hook NSURLSessionTask
 
 - (void)resume {
-    NSURLRequest *req = self.originalRequest ?: self.currentRequest ?: self.request;
+    NSURLRequest *req = self.originalRequest ?: self.currentRequest;
     SDFSpyReport(req, @"Resume");
     %orig;
 }
@@ -285,7 +286,7 @@ static void SDFSpyDownloadCallback(CFNotificationCenterRef center, void *observe
 
 %ctor {
     @autoreleasepool {
-        NSString *proc = NSProcessInfo.processInfo.processName;
+        NSString *proc = [[NSProcessInfo processInfo] processName];
         AppendLog([NSString stringWithFormat:@"[SDFSpy] v1.2 loaded in %@ (jbRoot: %@)",
                    proc, JBRoot()]);
 
