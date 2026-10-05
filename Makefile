@@ -1,4 +1,4 @@
-# SDFSpy - iOS Safari 下载请求捕获插件
+# SafariGoPeed - iOS Safari 下载请求捕获插件
 # 支持 Dopamine / RootHide (越狱根 /var/jb 自适应)
 
 TARGET := iphone:clang::17.0
@@ -13,16 +13,16 @@ export THEOS_PACKAGE_SCHEME = rootless
 # THEOS_DEVICE_IP := 192.168.1.20
 # THEOS_DEVICE_PASS := alpine
 
-SDFSpy_FILES = Tweak.x
-SDFSpy_CFLAGS = -fobjc-arc
-SDFSpy_FRAMEWORKS = Foundation UIKit
+SafariGoPeed_FILES = Tweak.x
+SafariGoPeed_CFLAGS = -fobjc-arc
+SafariGoPeed_FRAMEWORKS = Foundation UIKit
 
 # 实例名必须设为 TWEAK_NAME（Theos 靠它生成编译/打包规则），
 # 否则 internal-all/internal-stage 无 target，什么都不编译。
-TWEAK_NAME = SDFSpy
+TWEAK_NAME = SafariGoPeed
 
 include $(THEOS)/makefiles/common.mk
 include $(THEOS_MAKE_PATH)/tweak.mk
 
 after-package::
-	@echo "==> 构建完成: packages/com.ssx.sdfsafari.spy_$(INTERNAL_VERSION)_$(ARCH).deb"
+	@echo "==> 构建完成: packages/com.ssx.safarigopeed_$(INTERNAL_VERSION)_$(ARCH).deb"

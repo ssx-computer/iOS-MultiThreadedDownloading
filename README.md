@@ -1,23 +1,24 @@
-# SDFSpy — iOS Safari 下载请求捕获插件
+# SafariGoPeed — iOS Safari 下载请求自动转发到 GoPeed 插件
 
-捕获 Safari 发出的**所有下载类网络请求**（显式 `downloadTask`、带下载特征的 `dataTask`、`resume` 的 task），
-记录到越狱根目录日志文件，并尝试弹 SpringBoard 横幅通知。
+捕获 Safari 发出的**所有下载类网络请求**，通过 GoPeed 官方 URL Scheme 自动拉起 GoPeed iOS App，
+并以 **8 线程（8 个 HTTP 连接）** 开始下载。
 
-- ✅ 兼容 **Dopamine / RootHide**：自动检测 `/var/jb` 越狱根目录
+- ✅ 兼容 **Dopamine / RootHide**：自动检测 `/var/jb` 越狱根目录（rootless 包）
 - ✅ 同时注入 `com.apple.mobilesafari`（Safari 主进程）和
-  `com.apple.WebKit.WebContent`（WebKit 资源加载进程），双进程覆盖，不漏抓
+  `com.apple.WebKit.WebContent`（WebKit 网络/下载进程），双进程覆盖不漏抓
 - ✅ 纯 ObjC hook `NSURLSession`，不依赖任何私有 Substrate API
+- ✅ 跨进程跳转：WebContent 捕获到下载 → 共享文件 + Darwin 通知 → 主进程 MobileSafari 拉起 GoPeed
 
 ## 捕获范围
 
 | 类型 | 处理 |
 |---|---|
-| `downloadTaskWithRequest:` | **必定记录**（这是 Safari/应用的显式下载入口） |
+| `downloadTaskWithRequest:` / `downloadTaskWithResumeData:` | **必定记录**（显式下载入口） |
 | `dataTaskWithRequest:` / `resume` | URL 带下载扩展名（ipa/apk/zip/dmg/exe/…）、`Content-Disposition: attachment`、`Range` 断点续传头 → 记录 |
 
-## 捕获后自动跳转 GoPeed（iOS）+ 8 线程
+## 跳转 GoPeed（iOS）+ 8 线程
 
-识别为下载后，插件通过 GoPeed **官方 URL Scheme** 直接拉起 GoPeed iOS App：
+识别为下载后，通过 GoPeed **官方 URL Scheme** 拉起 GoPeed iOS App：
 
 ```
 gopeed:///create?params=<base64(CreateTask JSON)>
@@ -43,27 +44,23 @@ gopeed:///create?params=<base64(CreateTask JSON)>
 
 可调项：`Tweak.x` 顶部 `GOPEED_THREADS`（默认 8）、`GOPEED_DEDUP_WINDOW`。
 
-日志位置（Dopamine/RootHide）：`/var/jb/SDFSpy/safari_downloads.log`
-传统越狱：`/SDFSpy/safari_downloads.log`
-可用 MobileTerminal 里 `cat /var/jb/SDFSpy/safari_downloads.log` 查看，或用内置文件管理 App 直接读。
+日志位置（Dopamine/RootHide）：`/var/jb/SafariGoPeed/safari_downloads.log`
+传统越狱：`/SafariGoPeed/safari_downloads.log`
+可用 MobileTerminal 里 `cat /var/jb/SafariGoPeed/safari_downloads.log` 查看，或用内置文件管理 App 直接读。
 
-## 构建（需要 macOS）
+## 构建（CI）
 
-本机开发机（Windows）无法直接编译 iOS tweak，请在 **macOS + Docker** 上构建：
+仓库已配置 **GitHub Actions** 自动构建：push 到 `main` 后，在 Actions 里下载
+`SafariGoPeed-main` artifact（`packages/*.deb`）即可。也可本地用 `./build.sh`（macOS + Docker）。
 
-```bash
-cd SDFSpy
-./build.sh          # 自动拉 xcodeorg/xcode:16.5 镜像 + Theos，make package
-```
-
-产物：`packages/com.ssx.sdfsafari.spy_1.2.0_iphoneos-arm64.deb`
+产物：`packages/com.ssx.safarigopeed_1.3.0_iphoneos-arm64.deb`
 
 > 构建机 SDK 会自动选择（`TARGET := iphone:clang::17.0`，SDK 段留空 → 用机器最新 SDK）。
 > 如目标设备系统低于 17，可把最后的 `17.0` 改成目标系统版本（如 `15.0`）。
 
-## 安装
+## 安装（Dopamine / RootHide）
 
-方式一（Sileo，推荐，自动装到 /var/jb 越狱根）：
+方式一（Sileo / 文件管理器，推荐，自动装到 /var/jb 越狱根）：
 
 ```bash
 scp packages/*.deb User@你的设备IP:~/
@@ -81,17 +78,18 @@ make install THEOS_DEVICE_IP=你的设备IP
 ## 验证
 
 1. Safari 里下载任意 `.ipa`/`.zip`（或访问会返回 `Content-Disposition: attachment` 的地址）
-2. MobileTerminal：`tail -f /var/jb/SDFSpy/safari_downloads.log`
+2. MobileTerminal：`tail -f /var/jb/SafariGoPeed/safari_downloads.log`
+3. 应看到 `CAPTURE` → `BROADCAST` → `GOPEED | 主进程拉起` 日志，然后 GoPeed 自动弹出
 
 ## 可调项（Tweak.x）
 
-- `gBannerEnabled`：是否每个下载都弹横幅
-- `SDFSpyReport` 里 `if (!dl) return;`：改成始终 `AppendLog` 可**记录全部请求**（日志量大，慎用）
+- `GOPEED_THREADS`：GoPeed 下载线程数（默认 8）
+- `SafariGoPeedReport` 里 `if (!dl) return;`：改成始终 `AppendLog` 可**记录全部请求**（日志量大，慎用）
 - `exts` 数组：扩展下载识别的文件扩展名
 
 ## RootHide / Dopamine 注意
 
-- 不要用 `make install` 手动装到系统根；走 Sileo 安装会自动落在 `/var/jb` 下，
-  且 Substrate（elastic/preposition）在 Dopamine 上会处理 dyld 缓存注入，无需额外配置。
+- 本包为 **rootless**（`THEOS_PACKAGE_SCHEME=rootless`），装到 `/var/jb` 下，
+  Substrate（elastic/preposition）在 Dopamine 上会处理 dyld 缓存注入，无需额外配置。
 - 日志目录写在越狱根下，不会触发 RootHide 的隐藏保护；如需对隐藏 App 进一步遮蔽日志文件，
   把日志路径换到更深层目录并收紧权限即可。

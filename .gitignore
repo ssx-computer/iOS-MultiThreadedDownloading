@@ -7,6 +7,6 @@ obj/
 *.d
 
 # 本地日志 / 临时文件
-SDFSpy/
+SafariGoPeed/
 *.log
 .DS_Store

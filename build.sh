@@ -1,5 +1,5 @@
 #!/bin/bash
-# SDFSpy 一键构建（macOS + Docker 环境）
+# SafariGoPeed 一键构建（macOS + Docker 环境）
 # 用法: ./build.sh
 set -e
 
@@ -19,6 +19,6 @@ docker run --rm -it \
         make clean
         make package
         echo "======================"
-        echo "产物: _Packages/arm64/com.ssx.sdfsafari.spy_*.deb"
+        echo "产物: packages/com.ssx.safarigopeed_*.deb"
         echo "======================"
     '
