@@ -3,7 +3,7 @@
 # 用法: ./build.sh
 set -e
 
-IMAGE=xcodeorg/xcode:16.5
+IMAGE=xcodeorg/xcode:15.4
 
 docker run --rm -it \
     -v "$(pwd)":/build -w /build \

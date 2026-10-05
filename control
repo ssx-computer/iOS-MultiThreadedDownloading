@@ -6,4 +6,4 @@ Description: Capture all Safari download requests, auto-forward to GoPeed iOS (8
 Maintainer: ssx
 Author: ssx
 Section: Developer
-Depends: firmware (>= 15.0)
+Depends: firmware (>= 14.0)
