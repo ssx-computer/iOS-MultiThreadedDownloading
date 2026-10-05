@@ -17,4 +17,4 @@ include $(THEOS)/makefiles/common.mk
 include $(THEOS_MAKE_PATH)/tweak.mk
 
 after-package::
-	@echo "==> 构建完成: _Packages/$(ARCH)/com.ssx.sdfsafari.spy_$(INTERNAL_VERSION)_$(ARCH).deb"
+	@echo "==> 构建完成: packages/com.ssx.sdfsafari.spy_$(INTERNAL_VERSION)_$(ARCH).deb"

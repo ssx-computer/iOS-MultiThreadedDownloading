@@ -56,7 +56,7 @@ cd SDFSpy
 ./build.sh          # 自动拉 xcodeorg/xcode:16.5 镜像 + Theos，make package
 ```
 
-产物：`_Packages/arm64/com.ssx.sdfsafari.spy_1.1.0_arm64.deb`
+产物：`packages/com.ssx.sdfsafari.spy_1.1.0_arm64.deb`
 
 > 如果目标设备系统低于 17（如 15/16），把 Makefile 中 `TARGET := iphone:clang:16.5:17.0`
 > 改成对应 SDK 版本（如 `15.0`）。
@@ -66,7 +66,7 @@ cd SDFSpy
 方式一（Sileo，推荐，自动装到 /var/jb 越狱根）：
 
 ```bash
-scp _Packages/arm64/*.deb User@你的设备IP:~/
+scp packages/*.deb User@你的设备IP:~/
 # 设备上用 Sileo / 自带文件管理器安装 deb
 ```
 

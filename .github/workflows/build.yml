@@ -29,13 +29,13 @@ jobs:
           set -e
           export THEOS="$HOME/theos"
           make clean package
-          ls -lh _Packages/arm64/
+          ls -lh packages/
 
       - name: Upload deb artifact
         uses: actions/upload-artifact@v4
         with:
           name: SDFSpy-${{ github.ref_name }}
-          path: _Packages/arm64/*.deb
+          path: packages/*.deb
           retention-days: 14
 
       - name: Create Release (on tag)
@@ -43,5 +43,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            _Packages/arm64/*.deb
+            packages/*.deb
           generate_body: true
