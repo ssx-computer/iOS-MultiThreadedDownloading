@@ -17,6 +17,10 @@ SDFSpy_FILES = Tweak.x
 SDFSpy_CFLAGS = -fobjc-arc
 SDFSpy_FRAMEWORKS = Foundation UIKit
 
+# 实例名必须设为 TWEAK_NAME（Theos 靠它生成编译/打包规则），
+# 否则 internal-all/internal-stage 无 target，什么都不编译。
+TWEAK_NAME = SDFSpy
+
 include $(THEOS)/makefiles/common.mk
 include $(THEOS_MAKE_PATH)/tweak.mk
 
