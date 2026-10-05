@@ -1,6 +1,12 @@
 // SDFSpy - 捕获 Safari 的所有下载请求 → 自动跳转 GoPeed (iOS) 8线程下载
 // 兼容 Dopamine / RootHide（越狱根目录 /var/jb 自适应）
-// 注入进程：MobileSafari + com.apple.WebKit.WebContent
+// 注入进程：MobileSafari（主进程，负责拉起 GoPeed）+ com.apple.WebKit.WebContent（网络/下载进程）
+//
+// 关键设计（跨进程跳转）：
+//   Safari 的网络与下载发生在 WebContent 进程，但 [UIApplication openURL:] 只有在
+//   主 app 进程（MobileSafari）里才能拉起外部 app（GoPeed）。
+//   → WebContent 捕获到下载后，通过 Darwin 通知广播给主进程 MobileSafari，
+//     由主进程调用 openURL 拉起 GoPeed。
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
@@ -11,8 +17,11 @@ static NSLock   *gLock = nil;
 
 // 跳转到 GoPeed 使用的线程数（HTTP 连接数）
 static const int GOPEED_THREADS = 8;
-// 同一 URL 的去重窗口（秒）—— 主进程与 WebContent 双进程都会 hook 到，避免重复跳转
+// 同一 URL 的去重窗口（秒）
 static const double GOPEED_DEDUP_WINDOW = 10.0;
+// Darwin 通知名（WebContent -> MobileSafari 广播下载事件）
+static NSString *const kSDFSpyDownloadNotification = @"com.ssx.sdfsafari.spy/download";
+static NSString *const kSDFSpyDownloadURLKey = @"url";
 
 #pragma mark - 越狱根目录（Dopamine / RootHide）
 
@@ -50,9 +59,10 @@ static void AppendLog(NSString *msg) {
     NSLog(@"[SDFSpy] %@", msg);
     [gLock lock];
     @try {
-        if (![NSFileManager.defaultManager fileExistsAtPath:LogPath()])
-            [@"" writeToFile:LogPath() atomically:YES encoding:NSUTF8StringEncoding error:nil];
-        NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:LogPath()];
+        NSString *lp = LogPath();
+        if (![NSFileManager.defaultManager fileExistsAtPath:lp])
+            [@"" writeToFile:lp atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:lp];
         if (fh) {
             [fh seekToEndOfFile];
             [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
@@ -70,8 +80,8 @@ static BOOL SDFSpyIsDownload(NSURLRequest *req) {
 
     static NSArray *exts = nil;
     if (!exts) exts = @[@"ipa", @"apk", @"aab", @"zip", @"rar", @"7z",
-                         @"exe", @"dmg", @"pkg", @"mp4", @"m4a", @"bin",
-                         @"deb", @"whl"];
+                        @"exe", @"dmg", @"pkg", @"mp4", @"m4a", @"bin",
+                        @"deb", @"whl"];
     NSString *path = [req.URL.path lowercaseString];
     for (NSString *e in exts)
         if ([path hasSuffix:[@"." stringByAppendingString:e]]) return YES;
@@ -106,22 +116,7 @@ static void SDFSpyBanner(NSString *text) {
     } @catch (NSException *e) { }
 }
 
-#pragma mark - 跳转 GoPeed (iOS)
-//
-// GoPeed 官方 URL Scheme（来自 GopeedLab/gopeed 仓库 ui/flutter 的
-// app_deep_link_controller.dart 与官方文档站）：
-//
-//   gopeed:///create?params=<base64(json)>
-//
-// json = CreateTask:
-//   {
-//     "req":  { "url": "...", "protocol": "http" },
-//     "opts": { "name": "", "path": "", "asDefaultPath": true,
-//               "selectFiles": [],
-//               "extra": { "connections": 8 } }     // ← 8 线程
-//   }
-//
-// 解码过程：base64 → utf8 → jsonDecode → CreateTask.fromJson
+#pragma mark - 跳转 GoPeed (iOS)  →  仅主进程调用
 
 static NSString *SDFSpyGoPeedLink(NSString *urlString) {
     NSDictionary *task = @{
@@ -137,15 +132,14 @@ static NSString *SDFSpyGoPeedLink(NSString *urlString) {
     NSError *err = nil;
     NSData *json = [NSJSONSerialization dataWithJSONObject:task options:0 error:&err];
     if (!json) return nil;
-
-    NSString *b64 = [json base64EncodedStringWithOptions:0];   // 标准 base64（+ / =）
+    NSString *b64 = [json base64EncodedStringWithOptions:0];
     NSString *q = [b64 stringByAddingPercentEncodingWithAllowedCharacters:
                    [NSCharacterSet URLQueryAllowedCharacterSet]];
     if (!q) return nil;
     return [NSString stringWithFormat:@"gopeed:///create?params=%@", q];
 }
 
-// 跨进程去重：双进程都可能 hook 到同一请求，用标记文件 + 时间窗口去重
+// 跨进程去重：双进程都可能捕获到同一请求
 static BOOL SDFSpyShouldForward(NSString *urlString) {
     unsigned hash = 0;
     for (unichar c in urlString) hash = hash * 31 + c;
@@ -156,54 +150,82 @@ static BOOL SDFSpyShouldForward(NSString *urlString) {
                               attributesOfItemAtPath:marker error:nil];
         NSDate *mtime = attr[NSFileModificationDate];
         if (mtime && -[mtime timeIntervalSinceNow] < -GOPEED_DEDUP_WINDOW) {
-            return NO;   // 窗口内已转发过
+            return NO;
         }
         [@"1" writeToFile:marker atomically:YES encoding:NSUTF8StringEncoding error:nil];
     } @catch (NSException *e) { }
     return YES;
 }
 
-static void SDFSpyForwardToGoPeed(NSURL *url) {
-    if (!url) return;
-    NSString *u = url.absoluteString;
+// 【主进程 MobileSafari 专用】真正拉起 GoPeed
+static void SDFSpyOpenInGoPeed(NSString *urlString) {
+    if (!urlString.length) return;
+    if (!SDFSpyShouldForward(urlString)) return;
 
-    if (!SDFSpyShouldForward(u)) return;
-
-    NSString *linkStr = SDFSpyGoPeedLink(u);
+    NSString *linkStr = SDFSpyGoPeedLink(urlString);
     AppendLog([NSString stringWithFormat:
-               @"GOPEED | 跳转: %@ (线程: %d)", u, GOPEED_THREADS]);
+               @"GOPEED | 主进程拉起: %@ (线程: %d)", urlString, GOPEED_THREADS]);
 
     NSURL *link = [NSURL URLWithString:linkStr];
     @try {
-        [UIApplication.sharedApplication openURL:link
-                                       options:@{}
-                              completionHandler:^(BOOL success) {
-            AppendLog([NSString stringWithFormat:@"GOPEED | 跳转结果: %@",
-                      success ? @"成功" : @"失败（GoPeed 未安装？）"]);
-            if (success)
-                SDFSpyBanner([NSString stringWithFormat:@"已送入 GoPeed（%d 线程）", GOPEED_THREADS]);
-            else
-                SDFSpyBanner([NSString stringWithFormat:@"GoPeed 未响应，链接已复制: %@", u]);
+        // 注意：不能用 canOpenURL: 预判（iOS 9+ 对未声明 LSApplicationQueriesSchemes 的
+        // scheme 恒返回 NO，即使 GoPeed 已装）。直接 openURL:，用 completion 判断结果。
+        [UIApplication.sharedApplication openURL:link options:@{} completionHandler:^(BOOL ok) {
+            AppendLog([NSString stringWithFormat:@"GOPEED | openURL 结果: %@",
+                      ok ? @"成功" : @"失败（GoPeed 未安装？）"]);
+            SDFSpyBanner(ok ? [NSString stringWithFormat:@"已送入 GoPeed（%d 线程）", GOPEED_THREADS]
+                           : [NSString stringWithFormat:@"GoPeed 未响应，链接已复制: %@", urlString]);
+            if (!ok) UIPasteboard.generalPasteboard.string = urlString;
         }];
     } @catch (NSException *e) {
-        UIPasteboard.generalPasteboard.string = u;
-        AppendLog(@"GOPEED | openURL 异常，已复制链接到剪贴板");
-        SDFSpyBanner(@"GoPeed 未响应，链接已复制到剪贴板");
+        UIPasteboard.generalPasteboard.string = urlString;
+        AppendLog(@"GOPEED | 主进程 openURL 异常，已复制链接");
     }
 }
 
-#pragma mark - 上报
+// 【主进程】收到 WebContent 广播后调用
+static void SDFSpyHandleDownloadNotification(NSString *urlString) {
+    if (!urlString.length) return;
+    // 主进程里异步执行，避免阻塞通知线程
+    dispatch_async(dispatch_get_main_queue(), ^{
+        SDFSpyOpenInGoPeed(urlString);
+    });
+}
+
+#pragma mark - 捕获
+
+// 任意进程：捕获到可疑下载 URL → 若是主进程直接拉起，否则广播给主进程
+static void SDFSpyCaptureURL(NSURL *url) {
+    if (!url || !url.absoluteString.length) return;
+    AppendLog([NSString stringWithFormat:@"CAPTURE | %@", url.absoluteString]);
+
+    BOOL isMainProcess = [[NSProcessInfo processInfo].processName isEqualToString:@"MobileSafari"];
+
+    if (isMainProcess) {
+        // 主进程自己捕获到了，直接拉起（保持原有跳转语义）
+        SDFSpyOpenInGoPeed(url.absoluteString);
+    } else {
+        // WebContent：把 URL 写入共享文件，再发 Darwin 通知作为“信号”。
+        // 注意：Darwin 通知跨进程只广播通知名，不带 userInfo，必须用文件传 URL。
+        NSString *pending = [WorkDir() stringByAppendingPathComponent:@"pending_url.txt"];
+        @try {
+            [url.absoluteString writeToFile:pending atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        } @catch (NSException *e) { }
+        CFNotificationCenterRef nc = CFNotificationCenterGetDarwinNotifyCenter();
+        CFNotificationCenterPostNotification(nc,
+            (__bridge CFStringRef)kSDFSpyDownloadNotification,
+            NULL, NULL, true);
+        AppendLog([NSString stringWithFormat:@"BROADCAST | 已写 pending_url 并通知主进程: %@", url.absoluteString]);
+    }
+}
 
 static void SDFSpyReport(NSURLRequest *req, NSString *kind) {
     if (!req || !req.URL) return;
     BOOL dl = [kind isEqualToString:@"DownloadTask"] || SDFSpyIsDownload(req);
-    if (!dl) return;      // 普通资源请求不记录、不转发
+    if (!dl) return;
 
-    NSString *msg = [NSString stringWithFormat:@"%@ | %@ | %@",
-                     kind, req.URL.absoluteString,
-                     (req.allHTTPHeaderFields[@"User-Agent"] ?: @"-")];
-    AppendLog(msg);
-    SDFSpyForwardToGoPeed(req.URL);
+    AppendLog([NSString stringWithFormat:@"%@ | %@", kind, req.URL.absoluteString]);
+    SDFSpyCaptureURL(req.URL);
 }
 
 #pragma mark - Hooks
@@ -213,6 +235,18 @@ static void SDFSpyReport(NSURLRequest *req, NSString *kind) {
 - (NSURLSessionDownloadTask *)downloadTaskWithRequest:(NSURLRequest *)request {
     NSURLSessionDownloadTask *t = %orig(request);
     SDFSpyReport(request, @"DownloadTask");
+    return t;
+}
+
+- (NSURLSessionDownloadTask *)downloadTaskWithResumeData:(NSData *)resumeData {
+    NSURLSessionDownloadTask *t = %orig(resumeData);
+    // resumeData 里通常带 NSURLSessionResumeCurrentRequest，取 URL
+    NSURL *url = nil;
+    @try {
+        id req = [resumeData valueForKey:@"NSURLSessionResumeCurrentRequest"];
+        if ([req isKindOfClass:[NSURLRequest class]]) url = [(NSURLRequest *)req URL];
+    } @catch (NSException *e) { }
+    if (url) SDFSpyReport([NSURLRequest requestWithURL:url], @"ResumeTask");
     return t;
 }
 
@@ -234,7 +268,35 @@ static void SDFSpyReport(NSURLRequest *req, NSString *kind) {
 
 %end
 
-%%ctor {
-    NSLog(@"[SDFSpy] v1.1 loaded in %@ (jbRoot: %@, gopeedThreads: %d)",
-          NSProcessInfo.processInfo.processName, JBRoot(), GOPEED_THREADS);
+#pragma mark - 主进程监听（仅 MobileSafari 注册）
+
+static void SDFSpyDownloadCallback(CFNotificationCenterRef center, void *observer,
+                                   CFStringRef name, const void *object,
+                                   CFDictionaryRef userInfo) {
+    // Darwin 通知不带 userInfo，URL 在共享文件 pending_url.txt 里，读出来并清除。
+    NSString *pending = [WorkDir() stringByAppendingPathComponent:@"pending_url.txt"];
+    NSString *url = nil;
+    @try {
+        url = [NSString stringWithContentsOfFile:pending encoding:NSUTF8StringEncoding error:nil];
+        [NSFileManager.defaultManager removeItemAtPath:pending error:nil];
+    } @catch (NSException *e) { }
+    SDFSpyHandleDownloadNotification(url);
+}
+
+%ctor {
+    @autoreleasepool {
+        NSString *proc = NSProcessInfo.processInfo.processName;
+        AppendLog([NSString stringWithFormat:@"[SDFSpy] v1.2 loaded in %@ (jbRoot: %@)",
+                   proc, JBRoot()]);
+
+        // 主进程注册 Darwin 监听，接收 WebContent 广播后拉起 GoPeed
+        if ([proc isEqualToString:@"MobileSafari"]) {
+            CFNotificationCenterRef nc = CFNotificationCenterGetDarwinNotifyCenter();
+            CFNotificationCenterAddObserver(nc, NULL,
+                SDFSpyDownloadCallback,
+                (__bridge CFStringRef)kSDFSpyDownloadNotification,
+                NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+            AppendLog(@"[SDFSpy] MobileSafari 已注册 Darwin 监听");
+        }
+    }
 }
