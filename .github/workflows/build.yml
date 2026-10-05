@@ -26,10 +26,20 @@ jobs:
 
       - name: Build tweak (Theos + native Xcode)
         run: |
-          set -e
+          set -x
           export THEOS="$HOME/theos"
-          make clean package
-          ls -lh packages/
+          export THEOS_VERBOSE=1
+          make clean
+          echo '=== make (compile) ==='
+          make
+          echo '=== .theos contents ==='
+          find .theos -type f 2>/dev/null
+          echo '=== make package ==='
+          make package
+          echo '=== packages ==='
+          ls -la packages/
+          echo '=== deb contents ==='
+          for f in packages/*.deb; do echo "--- $f"; ar t "$f"; done
 
       - name: Upload deb artifact
         uses: actions/upload-artifact@v4
